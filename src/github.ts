@@ -4,10 +4,16 @@ import { withRetry } from './utils.js';
 const TRIAGE_COMMENT_SIGNATURE = '🔎 Issue Triage Summary';
 const TRIAGE_LABEL_PATTERNS = /^(type|priority|complexity)-/;
 
-// Initialize Octokit client with GitHub token
-const octokit = new Octokit({
-  auth: process.env.GITHUB_TOKEN,
-});
+/**
+ * Get Octokit client with GitHub token (lazy initialization)
+ */
+function getOctokit(): Octokit {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error('GITHUB_TOKEN environment variable is not set');
+  }
+  return new Octokit({ auth: token });
+}
 
 export interface IssueData {
   title: string;
@@ -25,6 +31,8 @@ export async function fetchIssue(
   issueNumber: number
 ): Promise<IssueData> {
   console.error(`[INFO] Fetching issue #${issueNumber} from ${owner}/${repo}`);
+  
+  const octokit = getOctokit();
   
   const response = await withRetry(async () => {
     return await octokit.rest.issues.get({
@@ -56,6 +64,8 @@ export async function checkExistingTriageComment(
   issueNumber: number
 ): Promise<boolean> {
   console.error(`[INFO] Checking for existing triage comment on issue #${issueNumber}`);
+  
+  const octokit = getOctokit();
   
   const response = await withRetry(async () => {
     return await octokit.rest.issues.listComments({
@@ -89,6 +99,8 @@ export async function removeTriageLabels(
   }
 
   console.error(`[INFO] Removing ${triageLabels.length} existing triage labels`);
+  
+  const octokit = getOctokit();
   
   for (const label of triageLabels) {
     await withRetry(async () => {
@@ -127,6 +139,8 @@ export async function applyLabels(
 
   console.error(`[INFO] Applying ${uniqueLabels.length} labels: ${uniqueLabels.join(', ')}`);
   
+  const octokit = getOctokit();
+  
   await withRetry(async () => {
     await octokit.rest.issues.addLabels({
       owner,
@@ -147,6 +161,8 @@ export async function postComment(
   body: string
 ): Promise<void> {
   console.error(`[INFO] Posting triage comment on issue #${issueNumber}`);
+  
+  const octokit = getOctokit();
   
   await withRetry(async () => {
     await octokit.rest.issues.createComment({
