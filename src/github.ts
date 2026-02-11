@@ -1,4 +1,5 @@
 import { Octokit } from '@octokit/rest';
+import type { RestEndpointMethodTypes } from '@octokit/rest';
 import { withRetry } from './utils.js';
 
 const TRIAGE_COMMENT_SIGNATURE = '🔎 Issue Triage Summary';
@@ -75,7 +76,7 @@ export async function checkExistingTriageComment(
     });
   });
 
-  return response.data.some(comment => 
+  return response.data.some((comment: RestEndpointMethodTypes['issues']['listComments']['response']['data'][number]) => 
     comment.body?.includes(TRIAGE_COMMENT_SIGNATURE)
   );
 }
@@ -108,7 +109,7 @@ export async function removeTriageLabels(
         owner,
         repo,
         issue_number: issueNumber,
-        name: label,
+        name: label as string,
       });
     });
   }
