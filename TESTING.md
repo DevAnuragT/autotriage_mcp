@@ -49,7 +49,15 @@ export GOOGLE_API_KEY=$(grep GOOGLE_API_KEY .env | cut -d= -f2)
 node build/index.js
 ```
 
-Server will now listen on stdin/stdout. Keep this terminal open.
+**Expected output (keep this terminal open):**
+```
+[INFO] Starting GitHub Triage MCP Server
+[INFO] Server version: 1.0.0
+[INFO] Server connected via stdio transport
+[INFO] Ready to accept triage requests
+```
+
+Server will now listen on stdin/stdout.
 
 ### Step 3: Send Triage Request (New Terminal)
 ```bash
