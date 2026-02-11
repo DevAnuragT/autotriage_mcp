@@ -4,7 +4,7 @@
 
 ### 1. Verify Server Starts
 ```bash
-cd /home/anurag/hack/mcp
+cd autotriage_mcp  # or wherever you cloned it
 source .env
 timeout 3s node build/index.js
 ```
@@ -19,7 +19,6 @@ timeout 3s node build/index.js
 
 ### 2. Test Tools Listing
 ```bash
-cd /home/anurag/hack/mcp
 ./demo-triage.sh
 ```
 
@@ -38,7 +37,6 @@ cd /home/anurag/hack/mcp
 
 ### Step 1: Verify Environment
 ```bash
-cd /home/anurag/hack/mcp
 cat .env | grep -E "GITHUB_TOKEN|GOOGLE_API_KEY"
 ```
 
@@ -55,8 +53,6 @@ Server will now listen on stdin/stdout. Keep this terminal open.
 
 ### Step 3: Send Triage Request (New Terminal)
 ```bash
-cd /home/anurag/hack/mcp
-
 # Create JSON-RPC request to list tools
 cat > request.json << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"tools/list"}
@@ -108,7 +104,23 @@ Edit `~/.config/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "github-triage": {
       "command": "node",
-      "args": ["/home/anurag/hack/mcp/build/index.js"],
+      "args": ["$(pwd)/build/index.js"],
+      "env": {
+        "GITHUB_TOKEN": "your_token_here",
+        "GOOGLE_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+**OR use the full path to wherever you cloned the repo:**
+```json
+{
+  "mcpServers": {
+    "github-triage": {
+      "command": "node",
+      "args": ["/path/to/autotriage_mcp/build/index.js"],
       "env": {
         "GITHUB_TOKEN": "your_token_here",
         "GOOGLE_API_KEY": "your_api_key_here"
@@ -170,7 +182,6 @@ echo $GOOGLE_API_KEY
 ## Automated Test Script
 ```bash
 #!/bin/bash
-cd /home/anurag/hack/mcp
 
 echo "🧪 Testing MCP Server..."
 echo ""
