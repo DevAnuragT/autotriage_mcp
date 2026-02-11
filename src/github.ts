@@ -174,3 +174,51 @@ export async function postComment(
     });
   });
 }
+/**
+ * Search for open issues (contributor mode)
+ */
+export async function searchOpenIssues(
+  owner: string,
+  repo: string,
+  labels?: string[],
+  limit: number = 10
+): Promise<GitHubIssue[]> {
+  console.error(`[INFO] Searching for open issues in ${owner}/${repo}`);
+  
+  const octokit = getOctokit();
+  
+  // Build search query
+  let query = `repo:${owner}/${repo} is:open is:issue`;
+  if (labels && labels.length > 0) {
+    query += ` label:${labels.join(' label:')}`;
+  }
+  
+  const response = await withRetry(async () => {
+    return await octokit.rest.search.issuesAndPullRequests({
+      q: query,
+      per_page: limit,
+      sort: 'updated',
+      order: 'desc',
+    });
+  });
+
+  return response.data.items.map((issue: any) => ({
+    number: issue.number,
+    title: issue.title,
+    body: issue.body || '',
+    labels: issue.labels.map((label: any) =>
+      typeof label === 'string' ? label : label.name
+    ).filter((label: any): label is string => typeof label === 'string'),
+    comments: issue.comments,
+    assignee: issue.assignee,
+  })) as GitHubIssue[];
+}
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  body: string;
+  labels: string[];
+  comments?: number;
+  assignee?: any;
+}
