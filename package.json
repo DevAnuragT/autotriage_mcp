@@ -1,9 +1,10 @@
 {
   "name": "autotriage-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for intelligent GitHub issue triage using Gemini AI - dual-mode assistant for maintainers and contributors",
   "type": "module",
   "bin": {
+    "autotriage-mcp": "./build/index.js",
     "autotriage": "./build/index.js"
   },
   "scripts": {
@@ -26,7 +27,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DevAnuragT/autotriage_mcp.git"
+    "url": "git+https://github.com/DevAnuragT/autotriage_mcp.git"
   },
   "homepage": "https://github.com/DevAnuragT/autotriage_mcp#readme",
   "bugs": {
