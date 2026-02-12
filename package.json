@@ -1,10 +1,10 @@
 {
-  "name": "triage",
+  "name": "autotriage-mcp",
   "version": "1.0.0",
   "description": "MCP server for intelligent GitHub issue triage using Gemini AI - dual-mode assistant for maintainers and contributors",
   "type": "module",
   "bin": {
-    "triage": "./build/index.js"
+    "autotriage": "./build/index.js"
   },
   "scripts": {
     "build": "tsc",

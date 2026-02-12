@@ -49,6 +49,7 @@ const TriageIssueArgsSchema = z.object({
     .number()
     .int()
     .positive()
+    .optional()
     .default(10)
     .describe('Maximum number of issues to return (contributor mode only, default: 10)'),
 });
@@ -263,14 +264,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // CONTRIBUTOR MODE: Search and recommend issues
       if (mode === 'contributor') {
+        // Filter out empty strings from labels
+        const filteredLabels = labels?.filter(l => l && l.trim().length > 0);
+        
         console.error(
           `[INFO] Searching for contributor-friendly issues in ${owner}/${repo}` +
-          (labels?.length ? ` with labels: ${labels.join(', ')}` : '')
+          (filteredLabels?.length ? ` with labels: ${filteredLabels.join(', ')}` : '') + ``
         );
 
         let issues: GitHubIssue[];
         try {
-          issues = await searchOpenIssues(owner, repo, labels, limit);
+          issues = await searchOpenIssues(owner, repo, filteredLabels, limit);
         } catch (error: any) {
           console.error(`[ERROR] Failed to search issues: ${error.message}`);
           
@@ -308,7 +312,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               {
                 type: 'text',
                 text: `No unassigned open issues found in ${owner}/${repo}` +
-                  (labels?.length ? ` with labels: ${labels.join(', ')}` : '') +
+                  (filteredLabels?.length ? ` with labels: ${filteredLabels.join(', ')}` : '') +
                   '. Try different label filters or check back later.',
               },
             ],
@@ -396,20 +400,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Format response
         const recommendations = rankedIssues.map((item, index) => {
           const { issue, complexity, skillFit } = item;
+          const labels = issue.labels.length > 0 
+            ? issue.labels.join(', ')
+            : 'none';
+          
           return (
-            `${index + 1}. **#${issue.number}**: ${issue.title}\n` +
-            `   - **Complexity**: ${complexity}\n` +
-            `   - **Skill Fit**: ${skillFit}\n` +
-            `   - **Comments**: ${issue.comments || 0}\n` +
-            `   - **Labels**: ${issue.labels.join(', ') || 'none'}\n` +
-            `   - **URL**: https://github.com/${owner}/${repo}/issues/${issue.number}`
+            `${index + 1}. #${issue.number}: ${issue.title}\n` +
+            `   Complexity: ${complexity} | Skill Fit: ${skillFit} | Comments: ${issue.comments || 0}\n` +
+            `   Labels: ${labels}\n` +
+            `   URL: https://github.com/${owner}/${repo}/issues/${issue.number}`
           );
         }).join('\n\n');
 
-        const resultMessage = 
-          `Found ${rankedIssues.length} recommended issue(s) in ${owner}/${repo}` +
-          (labels?.length ? ` (filtered by: ${labels.join(', ')})` : '') +
-          ':\n\n' + recommendations;
+        const header = `🎯 Found ${rankedIssues.length} recommended issue${rankedIssues.length !== 1 ? 's' : ''} in ${owner}/${repo}` +
+          (filteredLabels?.length ? ` (filtered by: ${filteredLabels.join(', ')})` : '') +
+          '\n\n';
+
+        const resultMessage = header + recommendations;
 
         console.error(`[INFO] Returned ${rankedIssues.length} recommendations`);
 
@@ -436,7 +443,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     } catch (error: any) {
       // Unexpected failures
       console.error(`[ERROR] Unexpected error during triage: ${error.message}`);
-      console.error(error.stack);
+      console.error(`${error.stack}`);
       
       return {
         content: [
