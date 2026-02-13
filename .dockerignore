@@ -1,0 +1,15 @@
+node_modules
+build
+.git
+.env
+.env.*
+!.env.example
+*.md
+!README.md
+.gitignore
+.testing-pvt.md
+cli-test.sh
+test-*.sh
+*.log
+.npm
+.cache

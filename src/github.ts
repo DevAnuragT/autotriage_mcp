@@ -211,6 +211,8 @@ export async function searchOpenIssues(
     ).filter((label: any): label is string => typeof label === 'string'),
     comments: issue.comments,
     assignee: issue.assignee,
+    created_at: issue.created_at,
+    updated_at: issue.updated_at,
   })) as GitHubIssue[];
 }
 
@@ -221,4 +223,6 @@ export interface GitHubIssue {
   labels: string[];
   comments?: number;
   assignee?: any;
+  created_at: string;
+  updated_at: string;
 }

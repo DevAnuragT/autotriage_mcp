@@ -2,11 +2,13 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import http from 'http';
 import {
   fetchIssue,
   checkExistingTriageComment,
@@ -54,13 +56,40 @@ const TriageIssueArgsSchema = z.object({
     .describe('Maximum number of issues to return (contributor mode only, default: 10)'),
 });
 
+const BatchTriageArgsSchema = z.object({
+  owner: z
+    .string()
+    .min(1)
+    .describe('GitHub repository owner/organization name'),
+  repo: z
+    .string()
+    .min(1)
+    .describe('GitHub repository name'),
+  dry_run: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('If true, classify issues but do not apply labels or post comments'),
+});
+
+const TriageStatsArgsSchema = z.object({
+  owner: z
+    .string()
+    .min(1)
+    .describe('GitHub repository owner/organization name'),
+  repo: z
+    .string()
+    .min(1)
+    .describe('GitHub repository name'),
+});
+
 /**
  * Initialize MCP Server
  */
 const server = new Server(
   {
     name: 'github-triage-mcp',
-    version: '1.0.0',
+    version: '1.1.0',
   },
   {
     capabilities: {
@@ -114,6 +143,50 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['mode', 'owner', 'repo'],
+        },
+      },
+      {
+        name: 'batch_triage',
+        description:
+          'Batch triage all open issues in a repository. Analyzes and classifies all open issues using AI, ' +
+          'applies labels in batch, and returns summary statistics. Rate-limited for GitHub API and Gemini API.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: {
+              type: 'string',
+              description: 'GitHub repository owner/organization name',
+            },
+            repo: {
+              type: 'string',
+              description: 'GitHub repository name',
+            },
+            dry_run: {
+              type: 'boolean',
+              description: 'If true, classify issues but do not apply labels or post comments (default: false)',
+            },
+          },
+          required: ['owner', 'repo'],
+        },
+      },
+      {
+        name: 'triage_stats',
+        description:
+          'Get triage statistics for a repository. Analyzes issue labels to provide metrics on open issues by type, ' +
+          'priority distribution, average issue age, and stale issue count (>30 days inactive).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            owner: {
+              type: 'string',
+              description: 'GitHub repository owner/organization name',
+            },
+            repo: {
+              type: 'string',
+              description: 'GitHub repository name',
+            },
+          },
+          required: ['owner', 'repo'],
         },
       },
     ],
@@ -457,6 +530,306 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
+  if (name === 'batch_triage') {
+    try {
+      const validatedArgs = BatchTriageArgsSchema.parse(args);
+      const { owner, repo, dry_run } = validatedArgs;
+
+      console.error(`[INFO] Batch triaging ${owner}/${repo} (dry_run: ${dry_run})`);
+
+      // Fetch all open issues
+      const issues = await searchOpenIssues(owner, repo, undefined, 100);
+      if (issues.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `No open issues found in ${owner}/${repo}.`,
+            },
+          ],
+        };
+      }
+
+      console.error(`[INFO] Found ${issues.length} open issues to triage`);
+
+      // Track statistics
+      const stats = {
+        total: issues.length,
+        triaged: 0,
+        skipped: 0,
+        failed: 0,
+        byType: { bug: 0, feature: 0, question: 0, documentation: 0, other: 0 },
+        byPriority: { p0: 0, p1: 0, p2: 0, p3: 0 },
+        byComplexity: { low: 0, medium: 0, high: 0 },
+      };
+
+      // Rate limiting: Gemini = 15 RPM, GitHub = 5000/hr
+      const GEMINI_DELAY_MS = 4000; // ~15 requests per minute
+      const results: string[] = [];
+
+      for (let i = 0; i < issues.length; i++) {
+        const issue = issues[i];
+        console.error(`[INFO] Processing issue #${issue.number} (${i + 1}/${issues.length})`);
+
+        try {
+          // Check if already triaged
+          const existingLabels = issue.labels.map((l: string) => l.toLowerCase());
+          const hasTypeLabel = existingLabels.some((l: string) => 
+            l.includes('type-') || l.includes('bug') || l.includes('feature')
+          );
+          const hasPriorityLabel = existingLabels.some((l: string) => l.includes('p0') || l.includes('p1') || l.includes('p2') || l.includes('p3'));
+          const hasComplexityLabel = existingLabels.some((l: string) => l.includes('complexity-'));
+
+          if (hasTypeLabel && hasPriorityLabel && hasComplexityLabel) {
+            console.error(`[INFO] Issue #${issue.number} already triaged, skipping`);
+            stats.skipped++;
+            continue;
+          }
+
+          // Classify the issue
+          const classification = await classifyIssue(issue.title, issue.body || '');
+
+          // Update statistics
+          stats.triaged++;
+          const typeKey = classification.type.toLowerCase() as keyof typeof stats.byType;
+          if (typeKey in stats.byType) {
+            stats.byType[typeKey]++;
+          } else {
+            stats.byType.other++;
+          }
+          stats.byPriority[classification.priority.toLowerCase() as keyof typeof stats.byPriority]++;
+          stats.byComplexity[classification.complexity.toLowerCase() as keyof typeof stats.byComplexity]++;
+
+          // Apply labels if not dry run
+          if (!dry_run) {
+            const labels = [
+              `type-${classification.type.toLowerCase()}`,
+              classification.priority.toUpperCase(),
+              `complexity-${classification.complexity.toLowerCase()}`,
+            ];
+
+            try {
+              await applyLabels(owner, repo, issue.number, labels);
+              results.push(
+                `✅ #${issue.number}: ${classification.type} | ${classification.priority} | ${classification.complexity}`
+              );
+            } catch (labelError: any) {
+              console.error(`[WARN] Failed to apply labels to #${issue.number}: ${labelError.message}`);
+              stats.failed++;
+              results.push(`❌ #${issue.number}: Classification successful but labeling failed`);
+            }
+          } else {
+            results.push(
+              `🔍 #${issue.number}: ${classification.type} | ${classification.priority} | ${classification.complexity} (dry run)`
+            );
+          }
+
+          // Rate limit: sleep between requests
+          if (i < issues.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, GEMINI_DELAY_MS));
+          }
+        } catch (error: any) {
+          console.error(`[ERROR] Failed to triage issue #${issue.number}: ${error.message}`);
+          stats.failed++;
+          results.push(`❌ #${issue.number}: Failed - ${error.message}`);
+        }
+      }
+
+      // Format response
+      const summary = 
+        `📊 Batch Triage Summary for ${owner}/${repo}\n` +
+        `${'='.repeat(50)}\n\n` +
+        `Total Issues: ${stats.total}\n` +
+        `Triaged: ${stats.triaged}\n` +
+        `Skipped (already triaged): ${stats.skipped}\n` +
+        `Failed: ${stats.failed}\n\n` +
+        `By Type:\n` +
+        `  Bug: ${stats.byType.bug}\n` +
+        `  Feature: ${stats.byType.feature}\n` +
+        `  Question: ${stats.byType.question}\n` +
+        `  Documentation: ${stats.byType.documentation}\n` +
+        `  Other: ${stats.byType.other}\n\n` +
+        `By Priority:\n` +
+        `  P0 (Critical): ${stats.byPriority.p0}\n` +
+        `  P1 (High): ${stats.byPriority.p1}\n` +
+        `  P2 (Medium): ${stats.byPriority.p2}\n` +
+        `  P3 (Low): ${stats.byPriority.p3}\n\n` +
+        `By Complexity:\n` +
+        `  Low: ${stats.byComplexity.low}\n` +
+        `  Medium: ${stats.byComplexity.medium}\n` +
+        `  High: ${stats.byComplexity.high}\n\n` +
+        `${dry_run ? '(DRY RUN - No labels applied)\n\n' : ''}` +
+        `Individual Results:\n` +
+        `${results.join('\n')}`;
+
+      console.error(`[INFO] Batch triage complete: ${stats.triaged} triaged, ${stats.skipped} skipped, ${stats.failed} failed`);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: summary,
+          },
+        ],
+      };
+    } catch (error: any) {
+      console.error(`[ERROR] Batch triage failed: ${error.message}`);
+      console.error(error.stack);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Batch triage failed: ${error.message}. Please check the server logs for details.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  if (name === 'triage_stats') {
+    try {
+      const validatedArgs = TriageStatsArgsSchema.parse(args);
+      const { owner, repo } = validatedArgs;
+
+      console.error(`[INFO] Fetching triage stats for ${owner}/${repo}`);
+
+      // Fetch all open issues
+      const issues = await searchOpenIssues(owner, repo, undefined, 100);
+      if (issues.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `No open issues found in ${owner}/${repo}.`,
+            },
+          ],
+        };
+      }
+
+      // Calculate statistics
+      const stats = {
+        totalOpen: issues.length,
+        byType: { bug: 0, feature: 0, question: 0, documentation: 0, other: 0, unlabeled: 0 },
+        byPriority: { p0: 0, p1: 0, p2: 0, p3: 0, unlabeled: 0 },
+        byComplexity: { low: 0, medium: 0, high: 0, unlabeled: 0 },
+        avgAge: 0,
+        staleCount: 0,
+      };
+
+      const now = Date.now();
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      let totalAge = 0;
+
+      for (const issue of issues) {
+        const labels = issue.labels.map((l: string) => l.toLowerCase());
+
+        // Type classification
+        if (labels.some((l: string) => l.includes('bug') || l === 'type-bug')) {
+          stats.byType.bug++;
+        } else if (labels.some((l: string) => l.includes('feature') || l.includes('enhancement') || l === 'type-feature')) {
+          stats.byType.feature++;
+        } else if (labels.some((l: string) => l.includes('question') || l === 'type-question')) {
+          stats.byType.question++;
+        } else if (labels.some((l: string) => l.includes('documentation') || l.includes('docs') || l === 'type-documentation')) {
+          stats.byType.documentation++;
+        } else if (labels.some((l: string) => l.startsWith('type-') && !l.includes('bug') && !l.includes('feature'))) {
+          stats.byType.other++;
+        } else {
+          stats.byType.unlabeled++;
+        }
+
+        // Priority classification
+        if (labels.some((l: string) => l === 'p0' || l.includes('critical'))) {
+          stats.byPriority.p0++;
+        } else if (labels.some((l: string) => l === 'p1' || l.includes('high'))) {
+          stats.byPriority.p1++;
+        } else if (labels.some((l: string) => l === 'p2' || l.includes('medium'))) {
+          stats.byPriority.p2++;
+        } else if (labels.some((l: string) => l === 'p3' || l.includes('low'))) {
+          stats.byPriority.p3++;
+        } else {
+          stats.byPriority.unlabeled++;
+        }
+
+        // Complexity classification
+        if (labels.some((l: string) => l.includes('complexity-low') || l.includes('easy'))) {
+          stats.byComplexity.low++;
+        } else if (labels.some((l: string) => l.includes('complexity-medium'))) {
+          stats.byComplexity.medium++;
+        } else if (labels.some((l: string) => l.includes('complexity-high') || l.includes('hard'))) {
+          stats.byComplexity.high++;
+        } else {
+          stats.byComplexity.unlabeled++;
+        }
+
+        // Age calculation
+        const createdAt = new Date(issue.created_at).getTime();
+        const age = now - createdAt;
+        totalAge += age;
+
+        // Stale detection (>30 days since last update)
+        const updatedAt = new Date(issue.updated_at).getTime();
+        if (now - updatedAt > THIRTY_DAYS_MS) {
+          stats.staleCount++;
+        }
+      }
+
+      stats.avgAge = Math.round(totalAge / issues.length / (24 * 60 * 60 * 1000)); // Convert to days
+
+      // Format response
+      const summary =
+        `📊 Triage Statistics for ${owner}/${repo}\n` +
+        `${'='.repeat(50)}\n\n` +
+        `Total Open Issues: ${stats.totalOpen}\n` +
+        `Average Issue Age: ${stats.avgAge} days\n` +
+        `Stale Issues (>30 days inactive): ${stats.staleCount} (${Math.round(stats.staleCount / stats.totalOpen * 100)}%)\n\n` +
+        `By Type:\n` +
+        `  Bug: ${stats.byType.bug} (${Math.round(stats.byType.bug / stats.totalOpen * 100)}%)\n` +
+        `  Feature: ${stats.byType.feature} (${Math.round(stats.byType.feature / stats.totalOpen * 100)}%)\n` +
+        `  Question: ${stats.byType.question} (${Math.round(stats.byType.question / stats.totalOpen * 100)}%)\n` +
+        `  Documentation: ${stats.byType.documentation} (${Math.round(stats.byType.documentation / stats.totalOpen * 100)}%)\n` +
+        `  Other: ${stats.byType.other} (${Math.round(stats.byType.other / stats.totalOpen * 100)}%)\n` +
+        `  Unlabeled: ${stats.byType.unlabeled} (${Math.round(stats.byType.unlabeled / stats.totalOpen * 100)}%)\n\n` +
+        `By Priority:\n` +
+        `  P0 (Critical): ${stats.byPriority.p0} (${Math.round(stats.byPriority.p0 / stats.totalOpen * 100)}%)\n` +
+        `  P1 (High): ${stats.byPriority.p1} (${Math.round(stats.byPriority.p1 / stats.totalOpen * 100)}%)\n` +
+        `  P2 (Medium): ${stats.byPriority.p2} (${Math.round(stats.byPriority.p2 / stats.totalOpen * 100)}%)\n` +
+        `  P3 (Low): ${stats.byPriority.p3} (${Math.round(stats.byPriority.p3 / stats.totalOpen * 100)}%)\n` +
+        `  Unlabeled: ${stats.byPriority.unlabeled} (${Math.round(stats.byPriority.unlabeled / stats.totalOpen * 100)}%)\n\n` +
+        `By Complexity:\n` +
+        `  Low: ${stats.byComplexity.low} (${Math.round(stats.byComplexity.low / stats.totalOpen * 100)}%)\n` +
+        `  Medium: ${stats.byComplexity.medium} (${Math.round(stats.byComplexity.medium / stats.totalOpen * 100)}%)\n` +
+        `  High: ${stats.byComplexity.high} (${Math.round(stats.byComplexity.high / stats.totalOpen * 100)}%)\n` +
+        `  Unlabeled: ${stats.byComplexity.unlabeled} (${Math.round(stats.byComplexity.unlabeled / stats.totalOpen * 100)}%)`;
+
+      console.error(`[INFO] Stats calculated: ${stats.totalOpen} issues, ${stats.avgAge} days avg age`);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: summary,
+          },
+        ],
+      };
+    } catch (error: any) {
+      console.error(`[ERROR] Triage stats failed: ${error.message}`);
+      console.error(error.stack);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Triage stats failed: ${error.message}. Please check the server logs for details.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   // Unknown tool
   return {
     content: [
@@ -474,7 +847,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  */
 async function main() {
   console.error('[INFO] Starting GitHub Triage MCP Server');
-  console.error(`[INFO] Server version: 1.0.0`);
+  console.error(`[INFO] Server version: 1.0.1`);
   
   // Verify required environment variables
   if (!process.env.GITHUB_TOKEN) {
@@ -484,11 +857,46 @@ async function main() {
     console.error('[WARN] GOOGLE_API_KEY environment variable is not set');
   }
   
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // Check if running in HTTP/SSE mode (for Archestra)
+  const httpMode = process.env.MCP_TRANSPORT === 'sse' || process.argv.includes('--http');
+  const port = parseInt(process.env.PORT || '3000', 10);
   
-  console.error('[INFO] Server connected via stdio transport');
-  console.error('[INFO] Ready to accept triage requests');
+  if (httpMode) {
+    console.error(`[INFO] Starting in HTTP/SSE mode on port ${port}`);
+    
+    const httpServer = http.createServer(async (req, res) => {
+      if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('OK');
+        return;
+      }
+      
+      if (req.url === '/sse') {
+        const transport = new SSEServerTransport('/message', res);
+        await server.connect(transport);
+        
+        req.on('close', () => {
+          transport.close();
+        });
+      } else {
+        res.writeHead(404);
+        res.end('Not Found');
+      }
+    });
+    
+    httpServer.listen(port, () => {
+      console.error(`[INFO] Server listening on http://localhost:${port}/sse`);
+      console.error('[INFO] Health check available at http://localhost:${port}/health');
+      console.error('[INFO] Ready to accept triage requests');
+    });
+  } else {
+    console.error('[INFO] Starting in stdio mode');
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    
+    console.error('[INFO] Server connected via stdio transport');
+    console.error('[INFO] Ready to accept triage requests');
+  }
 }
 
 main().catch((error) => {
