@@ -1,16 +1,60 @@
 # GitHub Issue Triage MCP Server
 
-An intelligent GitHub issue triage assistant powered by Google Gemini AI, built as a Model Context Protocol (MCP) server.
+An intelligent GitHub issue triage assistant powered by Google Gemini AI, built as a Model Context Protocol (MCP) server with dual-mode operation and full MCP protocol support.
+
+## 🎬 Demo
+
+![Demo Coming Soon](https://via.placeholder.com/800x400/1a1a1a/ffffff?text=Demo+GIF+Coming+Soon)
 
 ## Features
 
-- 🤖 **AI-Powered Classification** — Uses Google Gemini to analyze issue title and body
-- 🏷️ **Smart Labeling** — Automatically applies structured labels (type, priority, complexity)
-- 🎯 **Heuristic Overrides** — Detects critical keywords (crash, security, data loss) for instant P0 classification
-- 💬 **Structured Comments** — Posts formatted triage summaries with reasoning and next steps
-- ♻️ **Idempotent** — Re-running updates labels without duplicating comments
-- ⚡ **Retry Logic** — Exponential backoff for rate limit handling (GitHub & Gemini APIs)
-- 🔒 **Error Handling** — Hybrid strategy with controlled failures and graceful degradation
+### 🎭 Dual Operation Modes
+
+**Maintainer Mode** — Full triage automation
+- 🤖 AI-powered classification with Google Gemini
+- 🏷️ Automatic label application (type, priority, complexity)
+- 💬 Structured triage summary comments
+- ♻️ Idempotent operations (re-run safe)
+
+**Contributor Mode** — Issue discovery & recommendations
+- 🔍 Search and filter open issues by labels
+- 🎯 Smart ranking by beginner-friendliness
+- 📊 Complexity estimation from existing labels
+- ✨ Skill-fit scoring for contributors
+
+### 🛠️ Comprehensive Toolset
+
+- **`triage_issue`** — Dual-mode triage: full automation (maintainer) or issue search (contributor)
+- **`batch_triage`** — Triage all open issues in a repository at once
+- **`triage_stats`** — Repository health metrics and analytics
+
+### 📊 MCP Resources
+
+- **`triage://stats/{owner}/{repo}`** — Real-time repository statistics as MCP resources
+  - Issue counts by type, priority, complexity
+  - Staleness metrics (>30 days inactive)
+  - Average issue age
+
+### 💬 MCP Prompts
+
+Pre-built prompt templates for common workflows:
+- **`triage-issue`** — Triage a specific issue
+- **`find-beginner-issues`** — Discover good first issues
+- **`repo-health-check`** — Comprehensive repository analysis
+
+### 🐳 Archestra Platform Integration
+
+- **SSE/HTTP Transport** — Works with Archestra's MCP Gateway
+- **Docker Support** — Containerized deployment with multi-stage builds
+- **Kubernetes Ready** — Deploy to Archestra orchestrator
+- **Health Checks** — Built-in `/health` endpoint
+
+### ⚡ Advanced Features
+
+- 🎯 **Heuristic Overrides** — P0 detection for crash/security/data-loss keywords
+- ⚡ **Retry Logic** — Exponential backoff for GitHub & Gemini rate limits
+- 🔒 **Hybrid Error Handling** — Graceful degradation with controlled failures
+- 🔄 **Rate Limit Aware** — Respects API quotas (GitHub 5000/hr, Gemini 15 RPM)
 
 ## Classification System
 
@@ -196,6 +240,218 @@ special characters in their password. This is a critical bug affecting core func
 
 ---
 *This triage was performed automatically. Re-running will update labels without duplicating this comment.*
+```
+
+## 🛠️ All Tools
+
+### 1. `triage_issue` — Dual-Mode Triage
+
+**Maintainer Mode** — Full automated triage
+```typescript
+{
+  mode: "maintainer",
+  owner: "octocat",
+  repo: "hello-world",
+  issue_number: 42
+}
+```
+
+**Contributor Mode** — Find beginner-friendly issues
+```typescript
+{
+  mode: "contributor",
+  owner: "octocat",
+  repo: "hello-world",
+  labels: ["good first issue", "help wanted"],
+  limit: 10
+}
+```
+
+### 2. `batch_triage` — Bulk Repository Triage
+
+Triage all open issues in a repository at once:
+
+```typescript
+{
+  owner: "octocat",
+  repo: "hello-world",
+  dry_run: false  // Set to true to preview without applying labels
+}
+```
+
+**Output:** Summary statistics showing:
+- Total issues triaged
+- Breakdown by type (bug, feature, docs, etc.)
+- Priority distribution (P0-P3)
+- Complexity distribution (low/medium/high)
+
+**Rate Limiting:** Automatically throttles to respect:
+- GitHub API: 5000 requests/hour
+- Gemini API: 15 requests/minute (free tier)
+
+### 3. `triage_stats` — Repository Health Metrics
+
+Get comprehensive statistics about a repository's open issues:
+
+```typescript
+{
+  owner: "octocat",
+  repo: "hello-world"
+}
+```
+
+**Metrics provided:**
+- Total open issues
+- By type: bugs, features, docs, questions, other
+- By priority: P0 (critical), P1 (high), P2 (medium), P3 (low)
+- By complexity: low, medium, high
+- Beginner-friendly count (good first issue, help wanted)
+- Stale issues (>30 days inactive)
+- Average issue age in days
+
+## 📊 MCP Resources
+
+Access real-time repository statistics as MCP resources:
+
+```
+triage://stats/{owner}/{repo}
+```
+
+**Example in Claude Desktop:**
+```
+Read the resource triage://stats/modelcontextprotocol/servers
+```
+
+Returns JSON with comprehensive health metrics that can be analyzed by AI agents.
+
+## 💬 MCP Prompts
+
+Pre-built templates for common workflows:
+
+### `triage-issue`
+Triage a specific issue with AI classification.
+
+**Arguments:**
+- `owner` — Repository owner
+- `repo` — Repository name
+- `issue_number` — Issue to triage
+
+### `find-beginner-issues`
+Discover good first issues for new contributors.
+
+**Arguments:**
+- `owner` — Repository owner
+- `repo` — Repository name
+
+### `repo-health-check`
+Comprehensive repository health analysis.
+
+**Arguments:**
+- `owner` — Repository owner
+- `repo` — Repository name
+
+**Usage in Claude Desktop:**
+```
+Use the find-beginner-issues prompt for modelcontextprotocol/servers
+```
+
+## 🐳 Archestra Platform Integration
+
+### Running as Remote MCP Server
+
+The server supports both stdio (local) and SSE/HTTP (remote) transports:
+
+**Local mode (Claude Desktop):**
+```json
+{
+  "mcpServers": {
+    "github-triage": {
+      "command": "autotriage-mcp"
+    }
+  }
+}
+```
+
+**Remote mode (Archestra Platform):**
+```json
+{
+  "mcpServers": {
+    "github-triage": {
+      "url": "http://autotriage-mcp:3000/sse",
+      "transport": "sse"
+    }
+  }
+}
+```
+
+### Docker Deployment
+
+**Build the image:**
+```bash
+docker build -t autotriage-mcp .
+```
+
+**Run with environment variables:**
+```bash
+docker run -d \
+  -e GITHUB_TOKEN=ghp_your_token \
+  -e GOOGLE_API_KEY=your_key \
+  -e MCP_TRANSPORT=sse \
+  -p 3000:3000 \
+  --name autotriage \
+  autotriage-mcp
+```
+
+**Or use docker-compose:**
+```bash
+# Create .env file with GITHUB_TOKEN and GOOGLE_API_KEY
+docker-compose up -d
+```
+
+**Health check:**
+```bash
+curl http://localhost:3000/health
+```
+
+**SSE endpoint:**
+```
+http://localhost:3000/sse
+```
+
+### Kubernetes Deployment (Archestra Orchestrator)
+
+Deploy to Archestra's private registry:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: autotriage-mcp
+spec:
+  containers:
+  - name: mcp-server
+    image: registry.archestra.ai/autotriage-mcp:1.1.0
+    ports:
+    - containerPort: 3000
+    env:
+    - name: MCP_TRANSPORT
+      value: "sse"
+    - name: GITHUB_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: github-credentials
+          key: token
+    - name: GOOGLE_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: gemini-credentials
+          key: api-key
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 3000
+      initialDelaySeconds: 10
+      periodSeconds: 30
 ```
 
 ## Development
