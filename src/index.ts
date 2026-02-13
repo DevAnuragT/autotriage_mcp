@@ -6,6 +6,10 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import http from 'http';
@@ -94,6 +98,8 @@ const server = new Server(
   {
     capabilities: {
       tools: {},
+      resources: {},
+      prompts: {},
     },
   }
 );
@@ -191,6 +197,238 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
     ],
   };
+});
+
+/**
+ * List available resources
+ */
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  console.error('[INFO] Listing available resources');
+  
+  return {
+    resources: [
+      {
+        uri: 'triage://stats/{owner}/{repo}',
+        name: 'Repository Triage Statistics',
+        description: 'Real-time triage statistics for a GitHub repository including issue counts by type, priority, complexity, and staleness metrics',
+        mimeType: 'application/json',
+      },
+    ],
+  };
+});
+
+/**
+ * Handle resource reads
+ */
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const { uri } = request.params;
+  
+  console.error(`[INFO] Resource requested: ${uri}`);
+  
+  // Parse triage://stats/{owner}/{repo} URIs
+  const match = uri.match(/^triage:\/\/stats\/([^\/]+)\/([^\/]+)$/);
+  if (!match) {
+    throw new Error(`Unknown resource URI: ${uri}`);
+  }
+  
+  const [, owner, repo] = match;
+  
+  try {
+    // Fetch all open issues
+    const issues = await searchOpenIssues(owner, repo);
+    
+    // Calculate statistics
+    const stats = {
+      total_open_issues: issues.length,
+      by_type: {
+        bug: issues.filter(i => i.labels.some(l => l.toLowerCase().includes('bug'))).length,
+        feature: issues.filter(i => i.labels.some(l => l.toLowerCase().includes('feature') || l.toLowerCase().includes('enhancement'))).length,
+        documentation: issues.filter(i => i.labels.some(l => l.toLowerCase().includes('documentation') || l.toLowerCase().includes('docs'))).length,
+        question: issues.filter(i => i.labels.some(l => l.toLowerCase().includes('question'))).length,
+        other: 0,
+      },
+      by_priority: {
+        p0_critical: issues.filter(i => i.labels.some(l => l.toLowerCase() === 'priority-p0' || l.toLowerCase() === 'critical')).length,
+        p1_high: issues.filter(i => i.labels.some(l => l.toLowerCase() === 'priority-p1' || l.toLowerCase() === 'high')).length,
+        p2_medium: issues.filter(i => i.labels.some(l => l.toLowerCase() === 'priority-p2' || l.toLowerCase() === 'medium')).length,
+        p3_low: issues.filter(i => i.labels.some(l => l.toLowerCase() === 'priority-p3' || l.toLowerCase() === 'low')).length,
+      },
+      by_complexity: {
+        low: issues.filter(i => i.labels.some(l => l.toLowerCase().includes('complexity-low') || l.toLowerCase().includes('easy'))).length,
+        medium: issues.filter(i => i.labels.some(l => l.toLowerCase().includes('complexity-medium'))).length,
+        high: issues.filter(i => i.labels.some(l => l.toLowerCase().includes('complexity-high') || l.toLowerCase().includes('hard'))).length,
+      },
+      beginner_friendly: issues.filter(i => 
+        i.labels.some(l => l.toLowerCase().includes('good first issue') || l.toLowerCase().includes('help wanted'))
+      ).length,
+      stale_issues: issues.filter(i => {
+        const daysSinceUpdate = (Date.now() - new Date(i.updated_at).getTime()) / (1000 * 60 * 60 * 24);
+        return daysSinceUpdate > 30;
+      }).length,
+      average_age_days: issues.length > 0 
+        ? Math.round(issues.reduce((sum, i) => {
+            const age = (Date.now() - new Date(i.created_at).getTime()) / (1000 * 60 * 60 * 24);
+            return sum + age;
+          }, 0) / issues.length)
+        : 0,
+    };
+    
+    // Calculate 'other' type
+    stats.by_type.other = stats.total_open_issues - 
+      (stats.by_type.bug + stats.by_type.feature + stats.by_type.documentation + stats.by_type.question);
+    
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(stats, null, 2),
+        },
+      ],
+    };
+  } catch (error: any) {
+    throw new Error(`Failed to fetch triage stats for ${owner}/${repo}: ${error.message}`);
+  }
+});
+
+/**
+ * List available prompts
+ */
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  console.error('[INFO] Listing available prompts');
+  
+  return {
+    prompts: [
+      {
+        name: 'triage-issue',
+        description: 'Triage a specific GitHub issue with AI classification',
+        arguments: [
+          {
+            name: 'owner',
+            description: 'Repository owner',
+            required: true,
+          },
+          {
+            name: 'repo',
+            description: 'Repository name',
+            required: true,
+          },
+          {
+            name: 'issue_number',
+            description: 'Issue number to triage',
+            required: true,
+          },
+        ],
+      },
+      {
+        name: 'find-beginner-issues',
+        description: 'Find good first issues for new contributors',
+        arguments: [
+          {
+            name: 'owner',
+            description: 'Repository owner',
+            required: true,
+          },
+          {
+            name: 'repo',
+            description: 'Repository name',
+            required: true,
+          },
+        ],
+      },
+      {
+        name: 'repo-health-check',
+        description: 'Get comprehensive repository health metrics',
+        arguments: [
+          {
+            name: 'owner',
+            description: 'Repository owner',
+            required: true,
+          },
+          {
+            name: 'repo',
+            description: 'Repository name',
+            required: true,
+          },
+        ],
+      },
+    ],
+  };
+});
+
+/**
+ * Handle prompt execution
+ */
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+  
+  console.error(`[INFO] Prompt requested: ${name}`);
+  
+  if (name === 'triage-issue') {
+    const owner = args?.owner as string;
+    const repo = args?.repo as string;
+    const issue_number = args?.issue_number as string;
+    
+    if (!owner || !repo || !issue_number) {
+      throw new Error('Missing required arguments: owner, repo, issue_number');
+    }
+    
+    return {
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Please triage issue #${issue_number} in the ${owner}/${repo} repository. Use the triage_issue tool in maintainer mode to classify the issue and apply appropriate labels.`,
+          },
+        },
+      ],
+    };
+  }
+  
+  if (name === 'find-beginner-issues') {
+    const owner = args?.owner as string;
+    const repo = args?.repo as string;
+    
+    if (!owner || !repo) {
+      throw new Error('Missing required arguments: owner, repo');
+    }
+    
+    return {
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Find beginner-friendly issues in ${owner}/${repo}. Use the triage_issue tool in contributor mode with labels like ["good first issue", "help wanted"] to get recommendations for new contributors.`,
+          },
+        },
+      ],
+    };
+  }
+  
+  if (name === 'repo-health-check') {
+    const owner = args?.owner as string;
+    const repo = args?.repo as string;
+    
+    if (!owner || !repo) {
+      throw new Error('Missing required arguments: owner, repo');
+    }
+    
+    return {
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Analyze the health of ${owner}/${repo}. Use the triage_stats tool to get comprehensive statistics about open issues, their priorities, types, and staleness. Then provide insights and recommendations.`,
+          },
+        },
+      ],
+    };
+  }
+  
+  throw new Error(`Unknown prompt: ${name}`);
 });
 
 /**
