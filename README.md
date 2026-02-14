@@ -1,60 +1,88 @@
 # GitHub Issue Triage MCP Server
 
-An intelligent GitHub issue triage assistant powered by Google Gemini AI, built as a Model Context Protocol (MCP) server with dual-mode operation and full MCP protocol support.
+> **Built for Archestra** — An enterprise-grade MCP server demonstrating production-ready AI automation that scales across organizations.
 
-## 🎬 Demo
+An intelligent GitHub issue triage assistant powered by Google Gemini AI, built as a Model Context Protocol (MCP) server with dual-mode operation and full MCP protocol support. Designed to showcase Archestra's ability to orchestrate, secure, and scale AI agents.
+
+## Key Highlights for Archestra
+
+- **Archestra-Native Design** — SSE/HTTP transport integrates seamlessly with Archestra's MCP Gateway
+- **Production Ready** — Multi-stage Docker build, health checks, Kubernetes manifests included
+- **Full MCP Protocol** — Tools, Resources, Prompts (demonstrates complete MCP capabilities)
+- **Real AI Value** — Dual-mode operation serving both maintainers and contributors
+- **Observable & Manageable** — Built-in metrics, health endpoints, structured logging
+
+## Demo
 
 ![Demo Coming Soon](https://via.placeholder.com/800x400/1a1a1a/ffffff?text=Demo+GIF+Coming+Soon)
 
 ## Features
 
-### 🎭 Dual Operation Modes
+### Dual Operation Modes
 
 **Maintainer Mode** — Full triage automation
-- 🤖 AI-powered classification with Google Gemini
-- 🏷️ Automatic label application (type, priority, complexity)
-- 💬 Structured triage summary comments
-- ♻️ Idempotent operations (re-run safe)
+- AI-powered classification with Google Gemini
+- Automatic label application (type, priority, complexity)
+- Structured triage summary comments
+- Idempotent operations (re-run safe)
 
 **Contributor Mode** — Issue discovery & recommendations
-- 🔍 Search and filter open issues by labels
-- 🎯 Smart ranking by beginner-friendliness
-- 📊 Complexity estimation from existing labels
-- ✨ Skill-fit scoring for contributors
+- Search and filter open issues by labels
+- Smart ranking by beginner-friendliness
+- Complexity estimation from existing labels
+- Skill-fit scoring for contributors
 
-### 🛠️ Comprehensive Toolset
+### Comprehensive Toolset
 
 - **`triage_issue`** — Dual-mode triage: full automation (maintainer) or issue search (contributor)
 - **`batch_triage`** — Triage all open issues in a repository at once
 - **`triage_stats`** — Repository health metrics and analytics
 
-### 📊 MCP Resources
+### MCP Resources
 
 - **`triage://stats/{owner}/{repo}`** — Real-time repository statistics as MCP resources
   - Issue counts by type, priority, complexity
   - Staleness metrics (>30 days inactive)
   - Average issue age
 
-### 💬 MCP Prompts
+### MCP Prompts
 
 Pre-built prompt templates for common workflows:
 - **`triage-issue`** — Triage a specific issue
 - **`find-beginner-issues`** — Discover good first issues
 - **`repo-health-check`** — Comprehensive repository analysis
 
-### 🐳 Archestra Platform Integration
+### Archestra Platform Integration
 
 - **SSE/HTTP Transport** — Works with Archestra's MCP Gateway
 - **Docker Support** — Containerized deployment with multi-stage builds
 - **Kubernetes Ready** — Deploy to Archestra orchestrator
 - **Health Checks** — Built-in `/health` endpoint
 
-### ⚡ Advanced Features
+### Advanced Features
 
-- 🎯 **Heuristic Overrides** — P0 detection for crash/security/data-loss keywords
-- ⚡ **Retry Logic** — Exponential backoff for GitHub & Gemini rate limits
-- 🔒 **Hybrid Error Handling** — Graceful degradation with controlled failures
-- 🔄 **Rate Limit Aware** — Respects API quotas (GitHub 5000/hr, Gemini 15 RPM)
+- **Heuristic Overrides** — P0 detection for crash/security/data-loss keywords
+- **Retry Logic** — Exponential backoff for GitHub & Gemini rate limits
+- **Hybrid Error Handling** — Graceful degradation with controlled failures
+- **Rate Limit Aware** — Respects API quotas (GitHub 5000/hr, Gemini 15 RPM)
+
+## Why This Matters for Archestra
+
+**Problem:** Enterprise teams need AI agents that can automate operational tasks like issue triage, but deploying AI across an organization is complex—requiring security management, observability, scaling, and governance.
+
+**Solution:** This MCP server demonstrates how Archestra solves this:
+
+| Feature | Benefit |
+|---------|---------|
+| **SSE/HTTP Transport** | Connects to Archestra's MCP Gateway for centralized management |
+| **Docker Container** | Deploy consistently across Archestra's infrastructure |
+| **Health Checks** | Archestra monitors server health automatically |
+| **Structured Logging** | Archestra observes and audits AI operations |
+| **Rate Limiting** | Server respects API quotas while Archestra enforces org-level controls |
+| **Dual-Mode Operation** | Shows how MCP servers can serve different roles (maintainer/contributor) |
+| **Full MCP Protocol** | Tools, Resources, Prompts showcase complete MCP capabilities |
+
+**Result:** Teams use Archestra to deploy this triage server to their GitHub enterprise, and it automatically manages agent deployment, scaling, security, and observability—all without custom infrastructure.
 
 ## Classification System
 
@@ -309,7 +337,7 @@ Get comprehensive statistics about a repository's open issues:
 - Stale issues (>30 days inactive)
 - Average issue age in days
 
-## 📊 MCP Resources
+## MCP Resources
 
 Access real-time repository statistics as MCP resources:
 
@@ -324,7 +352,7 @@ Read the resource triage://stats/modelcontextprotocol/servers
 
 Returns JSON with comprehensive health metrics that can be analyzed by AI agents.
 
-## 💬 MCP Prompts
+## MCP Prompts
 
 Pre-built templates for common workflows:
 
@@ -357,49 +385,47 @@ Use the find-beginner-issues prompt for modelcontextprotocol/servers
 
 ## 🐳 Archestra Platform Integration
 
-### Running as Remote MCP Server
+This server is purpose-built to run in Archestra's platform. Here's how to deploy:
 
-The server supports both stdio (local) and SSE/HTTP (remote) transports:
+### 1. Using Archestra's MCP Gateway
 
-**Local mode (Claude Desktop):**
-```json
-{
-  "mcpServers": {
-    "github-triage": {
-      "command": "autotriage-mcp"
-    }
-  }
-}
-```
-
-**Remote mode (Archestra Platform):**
+**Archestra Configuration (`archestra-config.json`):**
 ```json
 {
   "mcpServers": {
     "github-triage": {
       "url": "http://autotriage-mcp:3000/sse",
-      "transport": "sse"
+      "transport": "sse",
+      "description": "GitHub issue triage powered by Gemini AI"
     }
   }
 }
 ```
 
-### Docker Deployment
+### 2. Docker Deployment (Local Testing)
 
 **Build the image:**
 ```bash
-docker build -t autotriage-mcp .
+docker build -t autotriage-mcp:v1.1.0 .
 ```
 
-**Run with environment variables:**
+**Run for development:**
 ```bash
 docker run -d \
-  -e GITHUB_TOKEN=ghp_your_token \
-  -e GOOGLE_API_KEY=your_key \
+  -e GITHUB_TOKEN=$(cat ~/.github_token) \
+  -e GOOGLE_API_KEY=$(cat ~/.gemini_key) \
   -e MCP_TRANSPORT=sse \
   -p 3000:3000 \
-  --name autotriage \
-  autotriage-mcp
+  --name autotriage-mcp \
+  autotriage-mcp:v1.1.0
+
+# Verify it's running
+curl http://localhost:3000/health
+```
+
+**Run in background with docker-compose:**
+```bash
+docker-compose up -d
 ```
 
 **Or use docker-compose:**
@@ -418,41 +444,113 @@ curl http://localhost:3000/health
 http://localhost:3000/sse
 ```
 
-### Kubernetes Deployment (Archestra Orchestrator)
+### 3. Kubernetes Deployment (Archestra Orchestrator)
 
-Deploy to Archestra's private registry:
+This manifest deploys the server to Archestra's Kubernetes cluster with proper secret management and observability:
 
+**Prerequisites:**
+- Kubernetes cluster running in Archestra environment
+- Secrets configured:
+  ```bash
+  kubectl create secret generic github-credentials --from-literal=token=ghp_...
+  kubectl create secret generic gemini-credentials --from-literal=api-key=AIza...
+  ```
+
+**Deployment manifest:**
 ```yaml
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: autotriage-mcp
+  namespace: default
 spec:
-  containers:
-  - name: mcp-server
-    image: registry.archestra.ai/autotriage-mcp:1.1.0
-    ports:
-    - containerPort: 3000
-    env:
-    - name: MCP_TRANSPORT
-      value: "sse"
-    - name: GITHUB_TOKEN
-      valueFrom:
-        secretKeyRef:
-          name: github-credentials
-          key: token
-    - name: GOOGLE_API_KEY
-      valueFrom:
-        secretKeyRef:
-          name: gemini-credentials
-          key: api-key
-    livenessProbe:
-      httpGet:
-        path: /health
-        port: 3000
-      initialDelaySeconds: 10
-      periodSeconds: 30
+  replicas: 2  # Archestra can scale based on load
+  selector:
+    matchLabels:
+      app: autotriage-mcp
+  template:
+    metadata:
+      labels:
+        app: autotriage-mcp
+    spec:
+      containers:
+      - name: mcp-server
+        image: registry.archestra.ai/autotriage-mcp:1.1.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: MCP_TRANSPORT
+          value: "sse"
+        - name: PORT
+          value: "3000"
+        - name: NODE_ENV
+          value: "production"
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-credentials
+              key: token
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gemini-credentials
+              key: api-key
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autotriage-mcp-svc
+spec:
+  selector:
+    app: autotriage-mcp
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: sse
+  type: ClusterIP
 ```
+
+**Deploy to Archestra:**
+```bash
+kubectl apply -f autotriage-deployment.yaml
+
+# Verify deployment
+kubectl get pods -l app=autotriage-mcp
+kubectl logs -f deployment/autotriage-mcp
+
+# Access via Archestra's MCP Gateway
+# (Archestra handles the routing)
+```
+
+**Benefits of This Deployment:**
+- Automatic Scaling — Archestra scales replicas based on demand
+- Health Monitoring — Kubernetes probes feed into Archestra's observability
+- Secret Management — Credentials stored in Kubernetes secrets
+- Load Balancing — Multiple replicas for high availability
+- Rolling Updates — Zero-downtime deployments
+- Resource Management — CPU/memory limits prevent runaway costs
 
 ## Development
 
@@ -488,13 +586,13 @@ autotriage_mcp/
 
 ### Hybrid Error Handling
 
-**🟢 Controlled Failures** (return structured error response):
+**Controlled Failures** (return structured error response):
 - Invalid input (malformed owner, negative issue number)
 - Resource not found (404 - issue doesn't exist)
 - Authentication failures (401/403 - invalid token)
 - Rate limiting (429 - handled with retry logic)
 
-**🔴 Unexpected Failures** (throw exception):
+**Unexpected Failures** (throw exception):
 - Network errors
 - API service unavailable
 - Internal server errors
