@@ -1,8 +1,10 @@
-# Testing Guide - GitHub Issue Triage MCP Server
+# Testing Guide
 
-## Quick Test (2 minutes)
+Comprehensive testing procedures for the GitHub Issue Triage MCP Server.
 
-### 1. Verify Server Starts
+## Quick Start (2 minutes)
+
+### Verify Server Starts
 ```bash
 cd autotriage_mcp  # or wherever you cloned it
 source .env
@@ -12,35 +14,32 @@ timeout 3s node build/index.js
 **Expected output (stderr):**
 ```
 [INFO] Starting GitHub Triage MCP Server
-[INFO] Server version: 1.0.0
+[INFO] Server version: 1.1.0
 [INFO] Server connected via stdio transport
 [INFO] Ready to accept triage requests
 ```
 
-### 2. Test Tools Listing
+### Test Tools Listing
 ```bash
-./demo-triage.sh
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node build/index.js 2>&1 | head -30
 ```
 
-**Expected output:**
-```
-✓ Tools endpoint working!
-```
+**Expected:** JSON response listing triage_issue, batch_triage, and triage_stats tools
 
 ---
 
-## Full End-to-End Test (5 minutes)
+## Full End-to-End Test
 
 ### Prerequisites
-- `.env` file configured with valid `GITHUB_TOKEN` and `GOOGLE_API_KEY`
-- An existing GitHub issue in your repository
+- .env file configured with valid GITHUB_TOKEN and GOOGLE_API_KEY
+- Test repository with at least one GitHub issue
 
 ### Step 1: Verify Environment
 ```bash
 cat .env | grep -E "GITHUB_TOKEN|GOOGLE_API_KEY"
 ```
 
-**Expected:** Both variables should show values (not empty)
+**Expected:** Both variables display non-empty values
 
 ### Step 2: Start MCP Server
 ```bash
@@ -49,32 +48,27 @@ export GOOGLE_API_KEY=$(grep GOOGLE_API_KEY .env | cut -d= -f2)
 node build/index.js
 ```
 
-**Expected output (keep this terminal open):**
+**Expected output (keep terminal open):**
 ```
 [INFO] Starting GitHub Triage MCP Server
-[INFO] Server version: 1.0.0
+[INFO] Server version: 1.1.0
 [INFO] Server connected via stdio transport
 [INFO] Ready to accept triage requests
 ```
 
-Server will now listen on stdin/stdout.
-
-### Step 3: Send Triage Request (New Terminal)
+### Step 3: List Available Tools (New Terminal)
 ```bash
-# Create JSON-RPC request to list tools
 cat > request.json << 'EOF'
 {"jsonrpc":"2.0","id":1,"method":"tools/list"}
 EOF
 
-# Send to server
 cat request.json | node build/index.js 2>&1 | head -50
 ```
 
-**Expected:** JSON response showing `triage_issue` tool with full schema
+**Expected:** JSON response with triage_issue, batch_triage, and triage_stats tool definitions
 
-### Step 4: Test Actual Triage (if issue exists)
+### Step 4: Test Maintainer Mode (Single Issue Triage)
 ```bash
-# Create triage request for your issue
 cat > triage_request.json << 'EOF'
 {
   "jsonrpc": "2.0",
@@ -83,169 +77,219 @@ cat > triage_request.json << 'EOF'
   "params": {
     "name": "triage_issue",
     "arguments": {
-      "owner": "DevAnuragT",
-      "repo": "autotriage_mcp",
+      "mode": "maintainer",
+      "owner": "YOUR_USERNAME",
+      "repo": "YOUR_REPO",
       "issue_number": 1
     }
   }
 }
 EOF
 
-# Send request
-export GITHUB_TOKEN=$(grep GITHUB_TOKEN .env | cut -d= -f2)
-export GOOGLE_API_KEY=$(grep GOOGLE_API_KEY .env | cut -d= -f2)
 cat triage_request.json | node build/index.js 2>&1
 ```
 
-**Expected output (if issue exists):**
-- Server logs to stderr: `[INFO] Starting triage for DevAnuragT/autotriage_mcp#1`
-- JSON-RPC response with triage results
+**Verification:**
+- Server logs show issue fetch and classification
+- GitHub issue receives type-*, priority-*, and complexity-* labels
+- Triage comment posted to issue
+
+### Step 5: Test Contributor Mode (Find Issues)
+```bash
+cat > contributor_request.json << 'EOF'
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "triage_issue",
+    "arguments": {
+      "mode": "contributor",
+      "owner": "octocat",
+      "repo": "Hello-World",
+      "labels": ["good first issue"],
+      "limit": 5
+    }
+  }
+}
+EOF
+
+cat contributor_request.json | node build/index.js 2>&1
+```
+
+**Expected:** Ranked list of beginner-friendly issues with complexity and skill-fit scores
+
+### Step 6: Test Batch Triage
+```bash
+cat > batch_request.json << 'EOF'
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "batch_triage",
+    "arguments": {
+      "owner": "octocat",
+      "repo": "Hello-World",
+      "dry_run": true
+    }
+  }
+}
+EOF
+
+cat batch_request.json | node build/index.js 2>&1
+```
+
+**Expected:** Summary of issues that would be triaged (dry_run=true means no changes applied)
+
+### Step 7: Test Repository Statistics
+```bash
+cat > stats_request.json << 'EOF'
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "triage_stats",
+    "arguments": {
+      "owner": "octocat",
+      "repo": "Hello-World"
+    }
+  }
+}
+EOF
+
+cat stats_request.json | node build/index.js 2>&1
+```
+
+**Expected:** JSON with complete repository metrics (issue counts by type/priority/complexity, stale count, average age)
 
 ---
 
-## Testing in Claude Desktop
+## Testing with Claude Desktop
 
-### 1. Configure MCP Server
-Edit `~/.config/Claude/claude_desktop_config.json`:
+### Configuration
+Edit ~/.config/Claude/claude_desktop_config.json:
+
 ```json
 {
   "mcpServers": {
     "github-triage": {
       "command": "node",
-      "args": ["$(pwd)/build/index.js"],
+      "args": ["/absolute/path/to/autotriage_mcp/build/index.js"],
       "env": {
-        "GITHUB_TOKEN": "your_token_here",
-        "GOOGLE_API_KEY": "your_api_key_here"
+        "GITHUB_TOKEN": "your_github_token",
+        "GOOGLE_API_KEY": "your_gemini_api_key"
       }
     }
   }
 }
 ```
 
-**OR use the full path to wherever you cloned the repo:**
-```json
-{
-  "mcpServers": {
-    "github-triage": {
-      "command": "node",
-      "args": ["/path/to/autotriage_mcp/build/index.js"],
-      "env": {
-        "GITHUB_TOKEN": "your_token_here",
-        "GOOGLE_API_KEY": "your_api_key_here"
-      }
-    }
-  }
-}
-```
+### Testing
+1. Restart Claude Desktop
+2. In chat, request: "Triage issue #1 in owner/repo"
+3. Claude will call the triage_issue tool with maintainer mode
+4. Verify on GitHub that labels and comment appear
 
-### 2. Restart Claude Desktop
-
-### 3. Test in Chat
-Ask Claude:
-```
-Triage issue #1 in DevAnuragT/autotriage_mcp
-```
-
-**Expected:** Claude will use the `triage_issue` tool and report:
-- Classification (type, priority, complexity)
-- Labels applied
-- Triage comment posted (if new)
+**Expected:** Tool execution logs and triage summary in Claude response
 
 ---
 
-## Troubleshooting Tests
+## Troubleshooting
 
-### Server won't start
+### Server fails to start
 ```bash
-# Check Node version
-node --version  # Should be 18+
-
-# Check build exists
-ls build/index.js
-
-# Check TypeScript errors
-npm run build
+node --version  # Verify Node 18+
+ls build/index.js  # Verify build artifact exists
+npm run build  # Rebuild if needed
 ```
 
-### "API key not set" error
+### API key errors
 ```bash
-# Verify .env has values
-cat .env
-
-# Verify export worked
-echo $GITHUB_TOKEN
-echo $GOOGLE_API_KEY
+cat .env  # Verify credentials are set
+echo $GITHUB_TOKEN  # Verify export worked
+echo $GOOGLE_API_KEY  # Verify export worked
 ```
 
-### GitHub API 403 error
-- Token scope too limited (need `repo` for private repos)
-- Create new token at: https://github.com/settings/tokens
+### GitHub API 403 (Unauthorized)
+Token scope insufficient. Create new token at https://github.com/settings/tokens with repo scope.
 
-### Gemini API errors
-- Check API key is valid at: https://aistudio.google.com/app/apikey
-- Check quota isn't exceeded (free tier: 15 RPM)
+### Gemini API rate limiting
+Free tier limit is 15 requests per minute. Wait before retrying. Verify key at https://aistudio.google.com/app/apikey
 
 ---
 
 ## Automated Test Script
+
+Save as test.sh:
+
 ```bash
 #!/bin/bash
+set -e
 
-echo "🧪 Testing MCP Server..."
+echo "Testing MCP Server"
 echo ""
 
 # Test 1: Build
-echo "1️⃣ Building..."
-npm run build || exit 1
+echo "Building TypeScript..."
+npm run build
 
-# Test 2: Server start
-echo "2️⃣ Testing server startup..."
-timeout 3s node build/index.js > /dev/null 2>&1 || exit 1
+# Test 2: Server startup
+echo "Testing server startup..."
+timeout 3s node build/index.js > /dev/null 2>&1 || true
 
-# Test 3: Tools listing
-echo "3️⃣ Testing tools endpoint..."
+# Test 3: Tools availability
+echo "Verifying tools endpoint..."
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
   timeout 3s node build/index.js 2>&1 | grep -q "triage_issue" || exit 1
 
 echo ""
-echo "✅ All tests passed!"
+echo "All basic tests passed"
 ```
 
-Save as `run-tests.sh` and run:
+Run:
 ```bash
-chmod +x run-tests.sh
-./run-tests.sh
+chmod +x test.sh
+./test.sh
 ```
 
 ---
 
-## What Each Test Verifies
+## Test Coverage
 
-| Test | What It Checks |
-|------|----------------|
-| Server start | Environment variables loaded, MCP protocol ready |
-| Tools listing | Tool schema is valid, parameters documented |
-| Triage call | GitHub API works, Gemini AI responds, labels applied |
-| Claude integration | MCP client can call tool successfully |
-
----
-
-## Success Indicators
-
-✅ Server logs `[INFO] Ready to accept triage requests`
-✅ `tools/list` returns `triage_issue` with full schema
-✅ `triage_issue` with valid params returns results
-✅ Labels appear on GitHub issues
-✅ Comments posted to issues
+| Test | Verifies |
+|------|----------|
+| Server startup | Environment variables, MCP protocol initialization |
+| Tools listing | Tool schemas and parameter documentation |
+| Maintainer mode | GitHub API, Gemini classification, label application |
+| Contributor mode | Issue search, ranking, complexity estimation |
+| Batch triage | Multi-issue processing, rate limit handling |
+| Repository stats | Metric aggregation and calculation accuracy |
 
 ---
 
-## Next Steps
+## Success Criteria
 
-1. **Test locally** with `./demo-triage.sh` ← Start here
-2. **Create test issue** in your repo
-3. **Configure Claude Desktop** with your API keys
-4. **Run triage command** in Claude: `"Triage issue #1 in owner/repo"`
-5. **Verify on GitHub** - check labels and comment on the issue
+- Server logs: [INFO] Ready to accept triage requests
+- tools/list returns all three tools: triage_issue, batch_triage, triage_stats
+- triage_issue returns classification results
+- GitHub issues receive appropriate labels (type-*, priority-*, complexity-*)
+- Triage comments posted on issues with reasoning
+- batch_triage processes multiple issues without errors
+- triage_stats returns valid JSON with all metrics
+
+---
+
+## Testing Workflow
+
+1. Verify environment with .env file
+2. Start MCP server locally
+3. Send test requests (tool/list, triage_issue, batch_triage, triage_stats)
+4. Verify GitHub changes (labels, comments)
+5. Test with Claude Desktop for end-to-end validation
+6. Test Docker container deployment (production scenario)
+
+For Archestra deployment testing, run Docker with MCP_TRANSPORT=sse and verify SSE endpoint at /sse
 
 ---
